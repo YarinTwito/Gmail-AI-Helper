@@ -24,22 +24,22 @@ The **Gmail AI Helper** is a Python-based tool that connects to your Gmail accou
    cd gmail-ai-helper
    ```
 
-	2.	Install Dependencies:
+2.	Install Dependencies:
 Use the requirements.txt file to install all necessary Python packages:
     ```pip install -r requirements.txt```
 
-	3.	Set Up Redis:
+3.	Set Up Redis:
     Start a Redis server using Docker:
     ``` docker run -d --name redis -p 6379:6379 redis```
 
- 4.	Set Up Gmail API Credentials:
+4.	Set Up Gmail API Credentials:
 	•	Go to the Google Cloud Console.
 	•	Create a new project or use an existing one.
 	•	Enable the Gmail API for the project.
 	•	Download the credentials file and save it as emails.json in the project directory.
 
-	5.	Run the Program:
-    ```python main.py```
+5.	Run the Program:
+    		```python main.py```
 
     
 
