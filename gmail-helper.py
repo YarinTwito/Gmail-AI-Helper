@@ -4,6 +4,8 @@ from gpt4all import GPT4All
 import redis
 import hashlib
 import json
+from collections import Counter
+from colorama import Fore, Style
 
 # Define the scope for the Gmail API
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
@@ -63,10 +65,7 @@ def analyze_email_with_llm(subject, sender, llm_model):
     # Check if the response is already in Redis
     cached_response = redis_client.get(cache_key)
     if cached_response:
-        print(f"Cache hit for: {subject}")
         return json.loads(cached_response)  # Deserialize the cached response
-
-    print(f"Cache miss for: {subject}. Calling LLM...")
 
     # Create the LLM prompt
     prompt = (
@@ -123,12 +122,24 @@ if __name__ == "__main__":
     llm_model = GPT4All("gpt4all-13b-snoozy-q4_0.gguf")
 
     # Analyze and display results
+    categories = []
     for idx, email in enumerate(emails, start=1):
         analysis = analyze_email_with_llm(
-            email['subject'], email['sender'], llm_model
-        )
+            email['subject'], email['sender'], llm_model)
         print(f"{idx}. From: {email['sender']}")
         print(f"   Subject: {email['subject']}")
         print(f"   Category: {analysis.get('Category', 'N/A')}")
         print(f"   Priority: {analysis.get('Priority', 'N/A')}")
         print(f"   Response: {analysis.get('Response', 'N/A')}\n")
+        # Collect categories for frequency analysis
+        categories.append(analysis.get('Category', 'N/A'))
+
+    # Count the frequency of each category
+    category_counts = Counter(categories)
+    most_frequent_category, frequency = category_counts.most_common(1)[0]
+
+    # Print the most frequent category in blue
+    print(Fore.BLUE +
+          f"The most frequent category is '{most_frequent_category}' - " +
+          f"{frequency} times" +
+          Style.RESET_ALL)
