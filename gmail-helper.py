@@ -1,9 +1,15 @@
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from gpt4all import GPT4All
+import redis
+import hashlib
+import json
 
 # Define the scope for the Gmail API
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
+
+# Connect to Redis
+redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
 
 
 def connect_to_gmail():
@@ -19,7 +25,9 @@ def connect_to_gmail():
 
 def fetch_latest_emails(service, max_results=10):
     # Fetch the latest emails
-    results = service.users().messages().list(userId='me', maxResults=max_results).execute()
+    results = service.users().messages().list(
+        userId='me', maxResults=max_results
+    ).execute()
     messages = results.get('messages', [])
 
     email_data = []
@@ -42,7 +50,24 @@ def fetch_latest_emails(service, max_results=10):
     return email_data
 
 
+def get_cache_key(subject, sender):
+    """Generate a unique cache key based on email subject and sender."""
+    data = f"{subject}|{sender}"
+    return hashlib.md5(data.encode('utf-8')).hexdigest()
+
+
 def analyze_email_with_llm(subject, sender, llm_model):
+    # Generate a cache key
+    cache_key = get_cache_key(subject, sender)
+
+    # Check if the response is already in Redis
+    cached_response = redis_client.get(cache_key)
+    if cached_response:
+        print(f"Cache hit for: {subject}")
+        return json.loads(cached_response)  # Deserialize the cached response
+
+    print(f"Cache miss for: {subject}. Calling LLM...")
+
     # Create the LLM prompt
     prompt = (
         f"Analyze the following email details:\n"
@@ -63,11 +88,27 @@ def analyze_email_with_llm(subject, sender, llm_model):
     cleaned_response = {}
     for line in response_lines:
         if "Category:" in line:
-            cleaned_response["Category"] = line.replace("Category:", "").replace("1.", "").strip()
+            cleaned_response["Category"] = (
+                line.replace("Category:", "")
+                .replace("1.", "")
+                .strip()
+            )
         elif "Priority:" in line:
-            cleaned_response["Priority"] = line.replace("Priority:", "").replace("2.", "").strip()
+            cleaned_response["Priority"] = (
+                line.replace("Priority:", "")
+                .replace("2.", "")
+                .strip()
+            )
         elif "Response:" in line:
-            cleaned_response["Response"] = line.replace("Response:", "").replace("3.", "").strip()
+            cleaned_response["Response"] = (
+                line.replace("Response:", "")
+                .replace("3.", "")
+                .strip()
+            )
+
+    # Cache the response in Redis with a 4-hour expiration
+    redis_client.setex(cache_key, 4 * 3600, json.dumps(cleaned_response))
+
     return cleaned_response
 
 
@@ -83,7 +124,9 @@ if __name__ == "__main__":
 
     # Analyze and display results
     for idx, email in enumerate(emails, start=1):
-        analysis = analyze_email_with_llm(email['subject'], email['sender'], llm_model)
+        analysis = analyze_email_with_llm(
+            email['subject'], email['sender'], llm_model
+        )
         print(f"{idx}. From: {email['sender']}")
         print(f"   Subject: {email['subject']}")
         print(f"   Category: {analysis.get('Category', 'N/A')}")
