@@ -57,7 +57,18 @@ def analyze_email_with_llm(subject, sender, llm_model):
 
     # Run the prompt through the LLM
     response = llm_model.generate(prompt)
-    return response.strip()
+
+    # Clean up the response to remove numerical prefixes
+    response_lines = response.strip().split('\n')
+    cleaned_response = {}
+    for line in response_lines:
+        if "Category:" in line:
+            cleaned_response["Category"] = line.replace("Category:", "").replace("1.", "").strip()
+        elif "Priority:" in line:
+            cleaned_response["Priority"] = line.replace("Priority:", "").replace("2.", "").strip()
+        elif "Response:" in line:
+            cleaned_response["Response"] = line.replace("Response:", "").replace("3.", "").strip()
+    return cleaned_response
 
 
 if __name__ == "__main__":
@@ -73,14 +84,8 @@ if __name__ == "__main__":
     # Analyze and display results
     for idx, email in enumerate(emails, start=1):
         analysis = analyze_email_with_llm(email['subject'], email['sender'], llm_model)
-        # Parse analysis result into structured lines
-        analysis_lines = analysis.split('\n')
-        category = analysis_lines[0].replace("Category:", "").strip()
-        priority = analysis_lines[1].replace("Priority:", "").strip()
-        response = analysis_lines[2].replace("Response:", "").strip()
-
         print(f"{idx}. From: {email['sender']}")
         print(f"   Subject: {email['subject']}")
-        print(f"   Category: {category}")
-        print(f"   Priority: {priority}")
-        print(f"   Response: {response}\n")
+        print(f"   Category: {analysis.get('Category', 'N/A')}")
+        print(f"   Priority: {analysis.get('Priority', 'N/A')}")
+        print(f"   Response: {analysis.get('Response', 'N/A')}\n")
