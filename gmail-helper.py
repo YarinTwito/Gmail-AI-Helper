@@ -70,18 +70,17 @@ if __name__ == "__main__":
     # Initialize GPT4All model
     llm_model = GPT4All("gpt4all-13b-snoozy-q4_0.gguf")
 
-    # Analyze each email
+    # Analyze and display results
     for idx, email in enumerate(emails, start=1):
-        result = analyze_email_with_llm(email['subject'], email['sender'], llm_model)
-        print(f"{idx}. From: {email['sender']} | Subject: {email['subject']}")
-        print(f"   Analysis: {result}")
+        analysis = analyze_email_with_llm(email['subject'], email['sender'], llm_model)
+        # Parse analysis result into structured lines
+        analysis_lines = analysis.split('\n')
+        category = analysis_lines[0].replace("Category:", "").strip()
+        priority = analysis_lines[1].replace("Priority:", "").strip()
+        response = analysis_lines[2].replace("Response:", "").strip()
 
-
-if __name__ == "__main__":
-    service = connect_to_gmail()
-    print("Connected to Gmail!")
-
-    # Fetch and display the latest emails
-    emails = fetch_latest_emails(service)
-    for idx, email in enumerate(emails, start=1):
-        print(f"{idx}. From: {email['sender']} | Subject: {email['subject']}")
+        print(f"{idx}. From: {email['sender']}")
+        print(f"   Subject: {email['subject']}")
+        print(f"   Category: {category}")
+        print(f"   Priority: {priority}")
+        print(f"   Response: {response}\n")
