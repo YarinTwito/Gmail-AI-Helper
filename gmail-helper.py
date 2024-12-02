@@ -6,6 +6,7 @@ import hashlib
 import json
 from collections import Counter
 from colorama import Fore, Style
+import matplotlib.pyplot as plt
 
 # Define the scope for the Gmail API
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
@@ -25,7 +26,7 @@ def connect_to_gmail():
     return service
 
 
-def fetch_latest_emails(service, max_results=10):
+def fetch_latest_emails(service, max_results=100):
     # Fetch the latest emails
     results = service.users().messages().list(
         userId='me', maxResults=max_results
@@ -44,7 +45,8 @@ def fetch_latest_emails(service, max_results=10):
             header['value'] for header in headers if header['name'] == 'From'
         )
         subject = next(
-            (header['value'] for header in headers if header['name'] == 'Subject'),
+            (header['value'] for header in headers
+             if header['name'] == 'Subject'),
             "(No Subject)"
         )
 
@@ -76,7 +78,8 @@ def analyze_email_with_llm(subject, sender, llm_model):
         f"1. Category (e.g., Work, School, Shopping, etc.).\n"
         f"2. Priority (e.g., Urgent, Important, Normal).\n"
         f"3. Does it require a response? (Yes/No).\n"
-        f"Output format: Category: [Category], Priority: [Priority], Response: [Yes/No]"
+        f"Output format: Category: [Category], Priority: [Priority], "
+        f"Response: [Yes/No]"
     )
 
     # Run the prompt through the LLM
@@ -111,6 +114,67 @@ def analyze_email_with_llm(subject, sender, llm_model):
     return cleaned_response
 
 
+def plot_all_graphs(categories, priorities, responses):
+    """
+    Plots all the graphs (categories, priorities, responses) in one figure.
+    """
+    # Count data for the graphs
+    category_counts = Counter(categories)
+    priority_counts = Counter(priorities)
+    response_counts = Counter(responses)
+
+    # Prepare data for plotting
+    category_labels = list(category_counts.keys())
+    category_values = list(category_counts.values())
+
+    priority_labels = list(priority_counts.keys())
+    priority_sizes = list(priority_counts.values())
+
+    response_labels = ['Yes', 'No']
+    response_values = [
+        response_counts.get('Yes', 0), response_counts.get('No', 0)
+    ]
+
+    # Create subplots
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    fig.suptitle('Email Analysis', fontsize=16)
+
+    # Graph 1: Number of Emails per Category (Bar Chart)
+    axes[0].bar(
+        category_labels, category_values, color='skyblue', edgecolor='black'
+    )
+    axes[0].set_title('Number of Emails per Category', fontsize=12)
+    axes[0].set_xlabel('Categories', fontsize=10)
+    axes[0].set_ylabel('Number of Emails', fontsize=10)
+    axes[0].tick_params(axis='x', rotation=45)
+
+    # Graph 2: Email Priorities Distribution (Pie Chart)
+    axes[1].pie(
+        priority_sizes,
+        labels=priority_labels,
+        autopct='%1.1f%%',
+        startangle=140,
+        colors=plt.cm.tab20c.colors[:len(priority_labels)],
+        textprops={'fontsize': 9}
+    )
+    axes[1].set_title('Email Priorities Distribution', fontsize=12)
+
+    # Graph 3: Emails Requiring Response (Bar Chart)
+    axes[2].bar(
+        response_labels, response_values,
+        color=['green', 'red'], edgecolor='black'
+    )
+    axes[2].set_title('Emails Requiring Response (Yes/No)', fontsize=12)
+    axes[2].set_xlabel('Response Required', fontsize=10)
+    axes[2].set_ylabel('Number of Emails', fontsize=10)
+    for i, value in enumerate(response_values):
+        axes[2].text(i, value + 1, str(value), ha='center', fontsize=10)
+
+    # Adjust layout
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.show()
+
+
 if __name__ == "__main__":
     service = connect_to_gmail()
     print("Connected to Gmail!")
@@ -123,6 +187,8 @@ if __name__ == "__main__":
 
     # Analyze and display results
     categories = []
+    priorities = []
+    responses = []
     for idx, email in enumerate(emails, start=1):
         analysis = analyze_email_with_llm(
             email['subject'], email['sender'], llm_model)
@@ -131,8 +197,10 @@ if __name__ == "__main__":
         print(f"   Category: {analysis.get('Category', 'N/A')}")
         print(f"   Priority: {analysis.get('Priority', 'N/A')}")
         print(f"   Response: {analysis.get('Response', 'N/A')}\n")
-        # Collect categories for frequency analysis
+        # Collect data for visualizations
         categories.append(analysis.get('Category', 'N/A'))
+        priorities.append(analysis.get('Priority', 'Normal'))
+        responses.append(analysis.get('Response', 'No'))
 
     # Count the frequency of each category
     category_counts = Counter(categories)
@@ -143,3 +211,6 @@ if __name__ == "__main__":
           f"The most frequent category is '{most_frequent_category}' - " +
           f"{frequency} times" +
           Style.RESET_ALL)
+
+    # Generate all graphs in one figure
+    plot_all_graphs(categories, priorities, responses)
