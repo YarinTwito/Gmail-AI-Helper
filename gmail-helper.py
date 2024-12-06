@@ -2,7 +2,6 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from gpt4all import GPT4All
 import redis
-import hashlib
 import json
 from collections import Counter
 from colorama import Fore, Style
@@ -14,135 +13,138 @@ SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 # Connect to Redis
 redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
 
+# Predefined categories, priorities, and responses
+MAIL_CATEGORIES = {
+    "Work": [],
+    "Personal": [],
+    "Promotions/Offers": [],
+    "Finance/Bills": [],
+    "Shopping/Orders": [],
+    "News/Updates": [],
+    "Travel": [],
+    "Education": [],
+    "Health/Fitness": [],
+    "Spam": [],
+    "Other": []
+}
+
+PRIORITIES = {
+    "Urgent": [],
+    "Important": [],
+    "Normal": [],
+    "Ignore": []
+}
+
+RESPONSES = {"Yes": [], "No": []}
+
+CACHE_EXPIRATION = 4 * 3600  # Cache duration in seconds (4 hours)
+
 
 def connect_to_gmail():
-    # Always go through the authorization flow
-    flow = InstalledAppFlow.from_client_secrets_file(
-        'emails.json', SCOPES)
+    """Authenticate and connect to Gmail API."""
+    flow = InstalledAppFlow.from_client_secrets_file('emails.json', SCOPES)
     creds = flow.run_local_server(port=0)
-
-    # Build the Gmail service
     service = build('gmail', 'v1', credentials=creds)
     return service
 
 
 def fetch_latest_emails(service, max_results=100):
-    # Fetch the latest emails
-    results = service.users().messages().list(
-        userId='me', maxResults=max_results
-    ).execute()
+    """Fetch the latest emails from Gmail."""
+    results = service.users().messages().list(userId='me', maxResults=max_results).execute()
     messages = results.get('messages', [])
-
     email_data = []
     for msg in messages:
-        msg_data = service.users().messages().get(
-            userId='me', id=msg['id']).execute()
+        msg_data = service.users().messages().get(userId='me', id=msg['id']).execute()
         payload = msg_data['payload']
         headers = payload['headers']
 
         # Extract sender and subject
-        sender = next(
-            header['value'] for header in headers if header['name'] == 'From'
-        )
-        subject = next(
-            (header['value'] for header in headers
-             if header['name'] == 'Subject'),
-            "(No Subject)"
-        )
+        sender = next((header['value'] for header in headers if header['name'] == 'From'), "Unknown Sender")
+        subject = next((header['value'] for header in headers if header['name'] == 'Subject'), "(No Subject)")
 
         email_data.append({'sender': sender, 'subject': subject})
     return email_data
 
 
-def get_cache_key(subject, sender):
-    """Generate a unique cache key based on email subject and sender."""
-    data = f"{subject}|{sender}"
-    return hashlib.md5(data.encode('utf-8')).hexdigest()
-
-
-def analyze_email_with_llm(subject, sender, llm_model):
-    # Generate a cache key
-    cache_key = get_cache_key(subject, sender)
-
-    # Check if the response is already in Redis
+def ask_llm(question):
+    """Query the LLM with caching using Redis."""
+    cache_key = f"llm:{question}"
     cached_response = redis_client.get(cache_key)
-    if cached_response:
-        return json.loads(cached_response)  # Deserialize the cached response
 
+    if cached_response:
+        return json.loads(cached_response)  # Deserialize cached response
+
+    response = ""
+    with llm_model.chat_session():
+        response = llm_model.generate(question)
+    
+    # Cache the response in Redis
+    redis_client.setex(cache_key, CACHE_EXPIRATION, json.dumps(response))
+    return response
+
+
+def analyze_email_with_llm(subject, sender):
+    """Analyze an email using the LLM and Redis caching."""
     # Create the LLM prompt
     prompt = (
         f"Analyze the following email details:\n"
         f"Sender: {sender}\n"
         f"Subject: {subject}\n\n"
         f"Decide the following:\n"
-        f"1. Category (e.g., Work, School, Shopping, etc.).\n"
-        f"2. Priority (e.g., Urgent, Important, Normal).\n"
+        f"1. Category (e.g., Work/Professional, Personal, News/Updates, etc.).\n"
+        f"2. Priority (e.g., Urgent, Important, Normal, Ignore).\n"
         f"3. Does it require a response? (Yes/No).\n"
-        f"Output format: Category: [Category], Priority: [Priority], "
-        f"Response: [Yes/No]"
+        f"Output format: Category: [Category], Priority: [Priority], Response: [Yes/No]"
     )
 
-    # Run the prompt through the LLM
-    response = llm_model.generate(prompt)
+    response = ask_llm(prompt)
 
-    # Clean up the response to remove numerical prefixes
+    # Parse the response into a structured dictionary
     response_lines = response.strip().split('\n')
     cleaned_response = {}
     for line in response_lines:
         if "Category:" in line:
-            cleaned_response["Category"] = (
-                line.replace("Category:", "")
-                .replace("1.", "")
-                .strip()
-            )
+            cleaned_response["Category"] = line.replace("Category:", "").strip()
         elif "Priority:" in line:
-            cleaned_response["Priority"] = (
-                line.replace("Priority:", "")
-                .replace("2.", "")
-                .strip()
-            )
+            cleaned_response["Priority"] = line.replace("Priority:", "").strip()
         elif "Response:" in line:
-            cleaned_response["Response"] = (
-                line.replace("Response:", "")
-                .replace("3.", "")
-                .strip()
-            )
-
-    # Cache the response in Redis with a 4-hour expiration
-    redis_client.setex(cache_key, 4 * 3600, json.dumps(cleaned_response))
-
+            cleaned_response["Response"] = line.replace("Response:", "").strip()
     return cleaned_response
 
 
-def plot_all_graphs(categories, priorities, responses):
-    """
-    Plots all the graphs (categories, priorities, responses) in one figure.
-    """
+def categorize_emails(email, analysis):
+    """Categorize emails based on predefined categories, priorities, and responses."""
+    # Add email to the appropriate category
+    category = analysis.get("Category", "Other")
+    MAIL_CATEGORIES.setdefault(category, []).append(email)
+
+    # Add email to the appropriate priority
+    priority = analysis.get("Priority", "Normal")
+    PRIORITIES.setdefault(priority, []).append(email)
+
+    # Add email to the appropriate response
+    response = analysis.get("Response", "No")
+    RESPONSES.setdefault(response, []).append(email)
+
+
+def plot_all_graphs():
+    """Plot graphs based on categorized email data."""
     # Count data for the graphs
-    category_counts = Counter(categories)
-    priority_counts = Counter(priorities)
-    response_counts = Counter(responses)
+    category_counts = {k: len(v) for k, v in MAIL_CATEGORIES.items()}
+    priority_counts = {k: len(v) for k, v in PRIORITIES.items()}
+    response_counts = {k: len(v) for k, v in RESPONSES.items()}
 
     # Prepare data for plotting
-    category_labels = list(category_counts.keys())
-    category_values = list(category_counts.values())
-
-    priority_labels = list(priority_counts.keys())
-    priority_sizes = list(priority_counts.values())
-
-    response_labels = ['Yes', 'No']
-    response_values = [
-        response_counts.get('Yes', 0), response_counts.get('No', 0)
-    ]
+    category_labels, category_values = zip(*category_counts.items())
+    priority_labels, priority_sizes = zip(*priority_counts.items())
+    response_labels, response_values = zip(*response_counts.items())
 
     # Create subplots
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
     fig.suptitle('Email Analysis', fontsize=16)
 
     # Graph 1: Number of Emails per Category (Bar Chart)
-    axes[0].bar(
-        category_labels, category_values, color='skyblue', edgecolor='black'
-    )
+    axes[0].bar(category_labels, category_values, color='skyblue', edgecolor='black')
     axes[0].set_title('Number of Emails per Category', fontsize=12)
     axes[0].set_xlabel('Categories', fontsize=10)
     axes[0].set_ylabel('Number of Emails', fontsize=10)
@@ -160,10 +162,7 @@ def plot_all_graphs(categories, priorities, responses):
     axes[1].set_title('Email Priorities Distribution', fontsize=12)
 
     # Graph 3: Emails Requiring Response (Bar Chart)
-    axes[2].bar(
-        response_labels, response_values,
-        color=['green', 'red'], edgecolor='black'
-    )
+    axes[2].bar(response_labels, response_values, color=['green', 'red'], edgecolor='black')
     axes[2].set_title('Emails Requiring Response (Yes/No)', fontsize=12)
     axes[2].set_xlabel('Response Required', fontsize=10)
     axes[2].set_ylabel('Number of Emails', fontsize=10)
@@ -183,34 +182,25 @@ if __name__ == "__main__":
     emails = fetch_latest_emails(service)
 
     # Initialize GPT4All model
-    llm_model = GPT4All("gpt4all-13b-snoozy-q4_0.gguf")
+    llm_model = GPT4All("Llama-3.2-3B-Instruct-Q4_0.gguf")
 
     # Analyze and display results
-    categories = []
-    priorities = []
-    responses = []
     for idx, email in enumerate(emails, start=1):
-        analysis = analyze_email_with_llm(
-            email['subject'], email['sender'], llm_model)
+        analysis = analyze_email_with_llm(email['subject'], email['sender'])
         print(f"{idx}. From: {email['sender']}")
         print(f"   Subject: {email['subject']}")
         print(f"   Category: {analysis.get('Category', 'N/A')}")
         print(f"   Priority: {analysis.get('Priority', 'N/A')}")
         print(f"   Response: {analysis.get('Response', 'N/A')}\n")
-        # Collect data for visualizations
-        categories.append(analysis.get('Category', 'N/A'))
-        priorities.append(analysis.get('Priority', 'Normal'))
-        responses.append(analysis.get('Response', 'No'))
+        categorize_emails(email, analysis)
 
     # Count the frequency of each category
-    category_counts = Counter(categories)
-    most_frequent_category, frequency = category_counts.most_common(1)[0]
+    category_counts = {k: len(v) for k, v in MAIL_CATEGORIES.items()}
+    most_frequent_category = max(category_counts, key=category_counts.get)
+    frequency = category_counts[most_frequent_category]
 
     # Print the most frequent category in blue
-    print(Fore.BLUE +
-          f"The most frequent category is '{most_frequent_category}' - " +
-          f"{frequency} times" +
-          Style.RESET_ALL)
+    print(Fore.BLUE + f"The most frequent category is '{most_frequent_category}' - {frequency} times" + Style.RESET_ALL)
 
     # Generate all graphs in one figure
-    plot_all_graphs(categories, priorities, responses)
+    plot_all_graphs()
