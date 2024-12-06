@@ -1,9 +1,9 @@
+import redis
+import json
+from datetime import timedelta
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from gpt4all import GPT4All
-import redis
-import json
-from collections import Counter
 from colorama import Fore, Style
 import matplotlib.pyplot as plt
 
@@ -11,7 +11,9 @@ import matplotlib.pyplot as plt
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
 # Connect to Redis
-redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
+redis_client = redis.StrictRedis(
+    host='localhost', port=6379, db=0, decode_responses=True
+)
 
 # Predefined categories, priorities, and responses
 MAIL_CATEGORIES = {
@@ -37,7 +39,7 @@ PRIORITIES = {
 
 RESPONSES = {"Yes": [], "No": []}
 
-CACHE_EXPIRATION = 4 * 3600  # Cache duration in seconds (4 hours)
+CACHE_EXPIRATION = timedelta(hours=4)
 
 
 def connect_to_gmail():
@@ -50,11 +52,14 @@ def connect_to_gmail():
 
 def fetch_latest_emails(service, max_results=100):
     """Fetch the latest emails from Gmail."""
-    results = service.users().messages().list(userId='me', maxResults=max_results).execute()
+    results = service.users().messages().list(
+        userId='me', maxResults=max_results).execute()
     messages = results.get('messages', [])
     email_data = []
     for msg in messages:
-        msg_data = service.users().messages().get(userId='me', id=msg['id']).execute()
+        msg_data = service.users().messages().get(
+            userId='me', id=msg['id']
+        ).execute()
         payload = msg_data['payload']
         headers = payload['headers']
 
@@ -215,7 +220,9 @@ if __name__ == "__main__":
     frequency = category_counts[most_frequent_category]
 
     # Print the most frequent category in blue
-    print(Fore.BLUE + f"The most frequent category is '{most_frequent_category}' - {frequency} times" + Style.RESET_ALL)
+    print(Fore.BLUE +
+          f"The most frequent category is '{most_frequent_category}' - {frequency} times" +
+          Style.RESET_ALL)
 
     # Generate all graphs in one figure
     plot_all_graphs()
