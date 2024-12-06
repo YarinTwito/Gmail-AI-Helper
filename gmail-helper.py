@@ -17,14 +17,14 @@ redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
 MAIL_CATEGORIES = {
     "Work": [],
     "Personal": [],
-    "Promotions/Offers": [],
+    "Updates/Notifications": [],
+    "Promotions/Marketing": [],
     "Finance/Bills": [],
-    "Shopping/Orders": [],
-    "News/Updates": [],
+    "Shopping": [],
+    "Social": [],
+    "Health/Wellness": [],
     "Travel": [],
     "Education": [],
-    "Health/Fitness": [],
-    "Spam": [],
     "Other": []
 }
 
@@ -76,8 +76,8 @@ def ask_llm(question):
 
     response = ""
     with llm_model.chat_session():
-        response = llm_model.generate(question)
-    
+        response = llm_model.generate(question, max_tokens=6)
+
     # Cache the response in Redis
     redis_client.setex(cache_key, CACHE_EXPIRATION, json.dumps(response))
     return response
@@ -91,7 +91,8 @@ def analyze_email_with_llm(subject, sender):
         f"Sender: {sender}\n"
         f"Subject: {subject}\n\n"
         f"Decide the following:\n"
-        f"1. Category (e.g., Work/Professional, Personal, News/Updates, etc.).\n"
+        f"1. Category (e.g., Work, Personal, Updates/Notifications, Promotions/Marketing, "
+        f"Finance/Bills, Shopping, Social, Health/Wellness, Travel, Education, Other).\n"
         f"2. Priority (e.g., Urgent, Important, Normal, Ignore).\n"
         f"3. Does it require a response? (Yes/No).\n"
         f"Output format: Category: [Category], Priority: [Priority], Response: [Yes/No]"
@@ -131,8 +132,11 @@ def plot_all_graphs():
     """Plot graphs based on categorized email data."""
     # Count data for the graphs
     category_counts = {k: len(v) for k, v in MAIL_CATEGORIES.items()}
-    priority_counts = {k: len(v) for k, v in PRIORITIES.items()}
-    response_counts = {k: len(v) for k, v in RESPONSES.items()}
+    priority_counts = {k.replace("2.", "").replace("1.", "").strip(): len(v) for k, v in PRIORITIES.items()}
+    response_counts = {
+        "Yes": sum(len(RESPONSES[key]) for key in RESPONSES if "Yes" in key),
+        "No": sum(len(RESPONSES[key]) for key in RESPONSES if "No" in key),
+    }
 
     # Prepare data for plotting
     category_labels, category_values = zip(*category_counts.items())
@@ -144,14 +148,17 @@ def plot_all_graphs():
     fig.suptitle('Email Analysis', fontsize=16)
 
     # Graph 1: Number of Emails per Category (Bar Chart)
-    axes[0].bar(category_labels, category_values, color='skyblue', edgecolor='black')
+    cleaned_category_labels = [label.replace("1.", "").strip() for label in category_labels]
+    axes[0].bar(cleaned_category_labels, category_values, color='skyblue', edgecolor='black')
     axes[0].set_title('Number of Emails per Category', fontsize=12)
     axes[0].set_xlabel('Categories', fontsize=10)
     axes[0].set_ylabel('Number of Emails', fontsize=10)
-    axes[0].tick_params(axis='x', rotation=45)
+    axes[0].tick_params(axis='x', rotation=45, labelsize=9)
+    axes[0].set_xticks(range(len(cleaned_category_labels)))
+    axes[0].set_xticklabels(cleaned_category_labels, fontsize=9, rotation=45, ha='right')
 
     # Graph 2: Email Priorities Distribution (Pie Chart)
-    axes[1].pie(
+    wedges, texts, autotexts = axes[1].pie(
         priority_sizes,
         labels=priority_labels,
         autopct='%1.1f%%',
@@ -160,6 +167,13 @@ def plot_all_graphs():
         textprops={'fontsize': 9}
     )
     axes[1].set_title('Email Priorities Distribution', fontsize=12)
+
+    # Adjust the text appearance for better readability
+    for text in texts:
+        text.set_fontsize(9)
+    for autotext in autotexts:
+        autotext.set_fontsize(9)
+        autotext.set_color('white')
 
     # Graph 3: Emails Requiring Response (Bar Chart)
     axes[2].bar(response_labels, response_values, color=['green', 'red'], edgecolor='black')
