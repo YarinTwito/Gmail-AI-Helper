@@ -158,22 +158,23 @@ def plot_all_graphs():
     axes[0].set_xticklabels(cleaned_category_labels, fontsize=9, rotation=45, ha='right')
 
     # Graph 2: Email Priorities Distribution (Pie Chart)
+    colors = ['#ff9999', '#88ccee', '#a1d99b', '#ffcc99']
     wedges, texts, autotexts = axes[1].pie(
         priority_sizes,
         labels=priority_labels,
         autopct='%1.1f%%',
         startangle=140,
-        colors=plt.cm.tab20c.colors[:len(priority_labels)],
+        colors=colors,
         textprops={'fontsize': 9}
     )
     axes[1].set_title('Email Priorities Distribution', fontsize=12)
 
     # Adjust the text appearance for better readability
     for text in texts:
-        text.set_fontsize(9)
+        text.set_fontsize(10)
     for autotext in autotexts:
-        autotext.set_fontsize(9)
-        autotext.set_color('white')
+        autotext.set_fontsize(10)
+        autotext.set_color('black')
 
     # Graph 3: Emails Requiring Response (Bar Chart)
     axes[2].bar(response_labels, response_values, color=['green', 'red'], edgecolor='black')
