@@ -4,6 +4,7 @@ from datetime import timedelta
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from gpt4all import GPT4All
+from colorama import Fore, Style
 import matplotlib.pyplot as plt
 
 # Define the scope for the Gmail API
@@ -191,6 +192,14 @@ if __name__ == "__main__":
         print(f"   Priority: {analysis.get('Priority', 'N/A')}")
         print(f"   Response: {analysis.get('Response', 'N/A')}\n")
         categorize_emails(email, analysis)
+
+    # Count the frequency of each category
+    category_counts = {k: len(v) for k, v in MAIL_CATEGORIES.items()}
+    most_frequent_category = max(category_counts, key=category_counts.get)
+    frequency = category_counts[most_frequent_category]
+
+    # Print the most frequent category
+    print(Fore.BLUE + f"The most frequent category is '{most_frequent_category}' - {frequency} times")
 
     # Generate all graphs in one figure
     plot_all_graphs()
