@@ -4,7 +4,6 @@ from datetime import timedelta
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from gpt4all import GPT4All
-from colorama import Fore, Style
 import matplotlib.pyplot as plt
 
 # Define the scope for the Gmail API
@@ -70,7 +69,6 @@ def fetch_latest_emails(service, max_results=100):
         email_data.append({'sender': sender, 'subject': subject})
     return email_data
 
-
 def ask_llm(question):
     """Query the LLM with caching using Redis."""
     cache_key = f"llm:{question}"
@@ -81,12 +79,11 @@ def ask_llm(question):
 
     response = ""
     with llm_model.chat_session():
-        response = llm_model.generate(question, max_tokens=6)
+        response = llm_model.generate(question, max_tokens=100)
 
     # Cache the response in Redis
     redis_client.setex(cache_key, CACHE_EXPIRATION, json.dumps(response))
     return response
-
 
 def analyze_email_with_llm(subject, sender):
     """Analyze an email using the LLM and Redis caching."""
@@ -110,11 +107,11 @@ def analyze_email_with_llm(subject, sender):
     cleaned_response = {}
     for line in response_lines:
         if "Category:" in line:
-            cleaned_response["Category"] = line.replace("Category:", "").strip()
+            cleaned_response["Category"] = line.split("Category:")[1].strip()
         elif "Priority:" in line:
-            cleaned_response["Priority"] = line.replace("Priority:", "").strip()
+            cleaned_response["Priority"] = line.split("Priority:")[1].strip()
         elif "Response:" in line:
-            cleaned_response["Response"] = line.replace("Response:", "").strip()
+            cleaned_response["Response"] = line.split("Response:")[1].strip()
     return cleaned_response
 
 
@@ -137,10 +134,10 @@ def plot_all_graphs():
     """Plot graphs based on categorized email data."""
     # Count data for the graphs
     category_counts = {k: len(v) for k, v in MAIL_CATEGORIES.items()}
-    priority_counts = {k.replace("2.", "").replace("1.", "").strip(): len(v) for k, v in PRIORITIES.items()}
+    priority_counts = {k: len(v) for k, v in PRIORITIES.items()}
     response_counts = {
-        "Yes": sum(len(RESPONSES[key]) for key in RESPONSES if "Yes" in key),
-        "No": sum(len(RESPONSES[key]) for key in RESPONSES if "No" in key),
+        "Yes": len(RESPONSES.get("Yes", [])),
+        "No": len(RESPONSES.get("No", [])),
     }
 
     # Prepare data for plotting
@@ -153,41 +150,22 @@ def plot_all_graphs():
     fig.suptitle('Email Analysis', fontsize=16)
 
     # Graph 1: Number of Emails per Category (Bar Chart)
-    cleaned_category_labels = [label.replace("1.", "").strip() for label in category_labels]
-    axes[0].bar(cleaned_category_labels, category_values, color='skyblue', edgecolor='black')
+    axes[0].bar(category_labels, category_values, color='skyblue', edgecolor='black')
     axes[0].set_title('Number of Emails per Category', fontsize=12)
     axes[0].set_xlabel('Categories', fontsize=10)
     axes[0].set_ylabel('Number of Emails', fontsize=10)
     axes[0].tick_params(axis='x', rotation=45, labelsize=9)
-    axes[0].set_xticks(range(len(cleaned_category_labels)))
-    axes[0].set_xticklabels(cleaned_category_labels, fontsize=9, rotation=45, ha='right')
 
     # Graph 2: Email Priorities Distribution (Pie Chart)
     colors = ['#ff9999', '#88ccee', '#a1d99b', '#ffcc99']
-    wedges, texts, autotexts = axes[1].pie(
-        priority_sizes,
-        labels=priority_labels,
-        autopct='%1.1f%%',
-        startangle=140,
-        colors=colors,
-        textprops={'fontsize': 9}
-    )
+    axes[1].pie(priority_sizes, labels=priority_labels, autopct='%1.1f%%', startangle=140, colors=colors)
     axes[1].set_title('Email Priorities Distribution', fontsize=12)
-
-    # Adjust the text appearance for better readability
-    for text in texts:
-        text.set_fontsize(10)
-    for autotext in autotexts:
-        autotext.set_fontsize(10)
-        autotext.set_color('black')
 
     # Graph 3: Emails Requiring Response (Bar Chart)
     axes[2].bar(response_labels, response_values, color=['green', 'red'], edgecolor='black')
     axes[2].set_title('Emails Requiring Response (Yes/No)', fontsize=12)
     axes[2].set_xlabel('Response Required', fontsize=10)
     axes[2].set_ylabel('Number of Emails', fontsize=10)
-    for i, value in enumerate(response_values):
-        axes[2].text(i, value + 1, str(value), ha='center', fontsize=10)
 
     # Adjust layout
     plt.tight_layout(rect=[0, 0, 1, 0.95])
@@ -213,16 +191,6 @@ if __name__ == "__main__":
         print(f"   Priority: {analysis.get('Priority', 'N/A')}")
         print(f"   Response: {analysis.get('Response', 'N/A')}\n")
         categorize_emails(email, analysis)
-
-    # Count the frequency of each category
-    category_counts = {k: len(v) for k, v in MAIL_CATEGORIES.items()}
-    most_frequent_category = max(category_counts, key=category_counts.get)
-    frequency = category_counts[most_frequent_category]
-
-    # Print the most frequent category in blue
-    print(Fore.BLUE +
-          f"The most frequent category is '{most_frequent_category}' - {frequency} times" +
-          Style.RESET_ALL)
 
     # Generate all graphs in one figure
     plot_all_graphs()
